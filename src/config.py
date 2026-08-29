@@ -14,7 +14,10 @@ COLLECTION_NAME = "page_chunks_collection"
 
 # --- LLM (Groq) ---
 # GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
-GROQ_MODEL_NAME = "qwen-2.5-32b"
+GROQ_MODEL_NAME = "openai/gpt-oss-120b"
+
+# GROQ_MODEL_NAME = "llama-3.1-8b-instant"
+
 LLM_TEMPERATURE = 0.2
 SYSTEM_INSTRUCTION = """You are an accurate, factual AI document assistant.
 Answer the user's question using ONLY the provided document context.

@@ -1,7 +1,7 @@
 # this is the only file that talks to every stage.
 # Nothing outside this file (like main.py) should need to know HOW
 # ingestion/embedding/storage/generation work internally
-
+#-simple rag pipeline
 
 import os
 
@@ -9,6 +9,9 @@ from src.ingestion.file_processor import process_file
 from src.embedding.embedder import embed_chunks, embed_query
 from src.vectorstore import milvus_store
 from src.config import UPLOAD_DIR
+import sentry_sdk
+
+import sentry_sdk
 
 def ingest_file(file_path: str) -> int:
     """
@@ -17,14 +20,36 @@ def ingest_file(file_path: str) -> int:
     the file's name so it can later be listed or deleted individually.
     Returns how many chunks were stored.
     """
-    chunks = process_file(file_path)
-    if not chunks:
-        return 0
+    filename = os.path.basename(file_path)
 
-    filename = os.path.basename(file_path)  # e.g. "DSA-GUIDE.pdf" from a full path
+    # --- Stage 1: Parse & chunk ---
+    with sentry_sdk.start_span(op="rag.parse", description="Parse & chunk file") as span:
+        chunks = process_file(file_path)
+        span.set_data("num_chunks", len(chunks))
 
-    embeddings = embed_chunks(chunks)
-    inserted_count = milvus_store.insert_chunks(chunks, embeddings, filename)
+        if not chunks:
+            sentry_sdk.set_context("ingestion", {"filename": filename, "file_path": file_path})
+            sentry_sdk.capture_message(f"No chunks produced from {filename} — ingestion yielded nothing", level="warning")
+            return 0
+
+    # --- Stage 2: Embed chunks ---
+    with sentry_sdk.start_span(op="rag.embed_chunks", description="Embed document chunks") as span:
+        embeddings = embed_chunks(chunks)
+        span.set_data("num_embeddings", len(embeddings))
+
+    # --- Stage 3: Store in Milvus ---
+    with sentry_sdk.start_span(op="rag.store", description="Milvus insert"):
+        try:
+            inserted_count = milvus_store.insert_chunks(chunks, embeddings, filename)
+        except Exception as e:
+            sentry_sdk.set_context("ingestion", {
+                "filename": filename,
+                "num_chunks_embedded": len(chunks),
+                "embedding_dims": len(embeddings[0]) if embeddings else None,
+            })
+            sentry_sdk.capture_exception(e)
+            raise
+
     return inserted_count
 
 
@@ -38,9 +63,35 @@ def ask(query: str, top_k: int = 5) -> dict:
     # loading the Groq client (and requiring an API key) unless someone
     # actually asks a question, ingest_file() alone shouldn't need it.
 
-    query_vector = embed_query(query)
-    retrieved_chunks = milvus_store.search(query_vector, limit=top_k)
-    answer = generate_answer(query, retrieved_chunks)
+    #embedding query
+    with sentry_sdk.start_span(op="rag.embed", description="Embed query"):
+        query_vector = embed_query(query)
+
+    # milvus reterival
+    with sentry_sdk.start_span(op="rag.retrieve", description="Milvus retrieval") as span:
+        retrieved_chunks = milvus_store.search(query_vector, limit=top_k)
+        span.set_data("num_chunks_retrieved", len(retrieved_chunks))
+
+        if not retrieved_chunks:
+            sentry_sdk.set_context("retrieval", {"query": query, "top_k": top_k})
+            sentry_sdk.capture_message("Empty retrieval: no chunks found for query", level="warning")
+
+        #groq generation 
+    with sentry_sdk.start_span(op="rag.generate", description="Groq generation"):
+        try:
+            answer = generate_answer(query, retrieved_chunks)
+        except Exception as e:
+            sentry_sdk.set_context("generation", {
+                "query": query,
+                "num_context_chunks": len(retrieved_chunks),
+            })
+            sentry_sdk.capture_exception(e)
+            raise
+
+
+    # query_vector = embed_query(query)
+    # retrieved_chunks = milvus_store.search(query_vector, limit=top_k)
+    # answer = generate_answer(query, retrieved_chunks)
 
     return {"answer": answer, "chunks_used": retrieved_chunks}
 

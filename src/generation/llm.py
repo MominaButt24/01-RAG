@@ -1,3 +1,4 @@
+# src/generation/llm.py
 """
 Generation stage: takes retrieved chunks + the user's question, and asks
 the LLM to answer using ONLY that context (grounded answer, not made up).
@@ -12,15 +13,21 @@ _client = Groq()
 
 
 def build_context_block(retrieved_chunks: list) -> str:
-    
-    # Turns retrieved chunk dicts into one formatted text block the LLM
-    # can read, with source + similarity score visible per chunk so later
-    # can trace an answer back to exactly where it came from.
-    
     parts = []
     for ch in retrieved_chunks:
-        parts.append(f"[{ch['source']}] (similarity: {ch['score']}):\n{ch['text']}")
-    return "\n-----\n".join(parts)
+        # Get source metadata (or fallback)
+        source = ch.get("source", ch.get("hop", "Unknown Source"))
+        
+        # Safe format for similarity score or rank
+        score = ch.get("score", "N/A")
+        score_str = f"{score:.4f}" if isinstance(score, float) else str(score)
+        
+        # Retrieve text or fact
+        text = ch.get("text", ch.get("fact", str(ch)))
+        
+        parts.append(f"[{source}] (score/info: {score_str}):\n{text}")
+        
+    return "\n\n".join(parts)
 
 
 def generate_answer(query: str, retrieved_chunks: list) -> str:

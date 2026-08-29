@@ -1,5 +1,4 @@
 python-pptx
-docx2pdf
 langchain
 langchain-community
 pypdf
@@ -14,3 +13,4 @@ uvicorn[standard]
 python-multipart
 gradio
 requests
+sentry-sdk[fastapi]

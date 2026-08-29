@@ -5,10 +5,10 @@
 # "source" is what lets you point back to exactly which page/slide/row an
 # answer came from later, at generation time
 
-
+import subprocess
 import os
 from pptx import Presentation
-from docx2pdf import convert
+# from docx2pdf import convert
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredExcelLoader
 
 from src.config import CHUNK_CHAR_CAP
@@ -68,27 +68,56 @@ def _process_pptx(file_path: str) -> list:
     return chunks
 
 
-def _process_pdf_or_docx(file_path: str) -> list:
+# def _process_pdf_or_docx(file_path: str) -> list:
    
+#     chunks = []
+#     pdf_to_read = file_path
+#     temp_pdf = False
+
+#     if file_path.endswith(".docx"):
+#         pdf_to_read = file_path.replace(".docx", "_temp.pdf")
+#         try:
+#             convert(file_path, pdf_to_read)
+#         except Exception:
+#             if not os.path.exists(pdf_to_read):
+#                 raise
+#         temp_pdf = True
+
+#     loader = PyPDFLoader(pdf_to_read)
+#     documents = loader.load()  # one Document per page
+
+#     for doc in documents:
+#         text = doc.page_content.strip()
+#         page_num = doc.metadata["page"] + 1  # LangChain pages are 0-indexed
+#         if text:
+#             _split_capped(text, f"Page {page_num}", chunks)
+
+#     if temp_pdf and os.path.exists(pdf_to_read):
+#         os.remove(pdf_to_read)
+
+#     return chunks
+
+def _process_pdf_or_docx(file_path: str) -> list:
     chunks = []
     pdf_to_read = file_path
     temp_pdf = False
 
     if file_path.endswith(".docx"):
-        pdf_to_read = file_path.replace(".docx", "_temp.pdf")
-        try:
-            convert(file_path, pdf_to_read)
-        except Exception:
-            if not os.path.exists(pdf_to_read):
-                raise
+        output_dir = os.path.dirname(file_path) or "."
+        subprocess.run(
+            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", output_dir, file_path],
+            check=True,
+            timeout=60,
+        )
+        pdf_to_read = os.path.join(output_dir, os.path.basename(file_path).replace(".docx", ".pdf"))
         temp_pdf = True
 
     loader = PyPDFLoader(pdf_to_read)
-    documents = loader.load()  # one Document per page
+    documents = loader.load()
 
     for doc in documents:
         text = doc.page_content.strip()
-        page_num = doc.metadata["page"] + 1  # LangChain pages are 0-indexed
+        page_num = doc.metadata["page"] + 1
         if text:
             _split_capped(text, f"Page {page_num}", chunks)
 
@@ -96,7 +125,6 @@ def _process_pdf_or_docx(file_path: str) -> list:
         os.remove(pdf_to_read)
 
     return chunks
-
 
 def process_file(file_path: str) -> list:
     

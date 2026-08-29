@@ -1,4 +1,17 @@
 import os
+import sentry_sdk
+from dotenv import load_dotenv
+
+load_dotenv()
+
+sentry_sdk.init(
+    dsn=os.environ["SENTRY_DSN"],
+    environment=os.environ.get("APP_ENV", "development"),
+    release=os.environ.get("APP_RELEASE", "rag-pipeline:v1"),
+    traces_sample_rate=1.0,
+    send_default_pii=False,
+)
+
 import gradio as gr
 import requests
 
